@@ -5,8 +5,8 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const Tesseract = require('tesseract.js');
+const pdfParse = require('pdf-parse');
 const OpenAI = require('openai');
-const { convert } = require('pdf-poppler');
 
 const app = express();
 app.use(cors());
@@ -31,35 +31,24 @@ app.post('/api/gerar-minuta', upload.array('documentos'), async (req, res) => {
       const ext = path.extname(arquivo.originalname).toLowerCase();
 
       if (ext === '.pdf') {
-        const outputDir = path.join(__dirname, 'converted');
-        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-
-        await convert(arquivo.path, {
-          format: 'jpeg',
-          out_dir: outputDir,
-          out_prefix: path.parse(arquivo.filename).name,
-          page: null
-        });
-
-        const imagens = fs.readdirSync(outputDir).filter(f => f.endsWith('.jpg') || f.endsWith('.jpeg'));
-        for (const img of imagens) {
-          const result = await Tesseract.recognize(path.join(outputDir, img), 'por');
-          textoExtraido += result.data.text + '\n';
-          fs.unlinkSync(path.join(outputDir, img));
-        }
-
-        fs.unlinkSync(arquivo.path);
+        // 📄 Leitura direta de PDF como texto
+        const dataBuffer = fs.readFileSync(arquivo.path);
+        const data = await pdfParse(dataBuffer);
+        textoExtraido += data.text + '\n';
+        fs.unlinkSync(arquivo.path); // remove PDF após leitura
       } else {
+        // 🖼️ Imagem? Usa Tesseract
         const result = await Tesseract.recognize(arquivo.path, 'por');
         textoExtraido += result.data.text + '\n';
         fs.unlinkSync(arquivo.path);
       }
     }
 
+    // Prompt para OpenAI
     const prompt = `Use o modelo abaixo com os dados extraídos dos documentos para gerar uma minuta jurídica:\n\nMODELO:\n${modelo}\n\nDADOS:\n${textoExtraido}`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-3.5-turbo', // ou 'gpt-4' se tiver acesso
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
     });
