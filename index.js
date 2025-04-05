@@ -5,8 +5,8 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const Tesseract = require('tesseract.js');
+const pdfParse = require('pdf-parse'); // substituto do pdf-poppler
 const OpenAI = require('openai');
-const { convert } = require('pdf-poppler');
 
 const app = express();
 app.use(cors());
@@ -31,24 +31,10 @@ app.post('/api/gerar-minuta', upload.array('documentos'), async (req, res) => {
       const ext = path.extname(arquivo.originalname).toLowerCase();
 
       if (ext === '.pdf') {
-        const outputDir = path.join(__dirname, 'converted');
-        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-
-        await convert(arquivo.path, {
-          format: 'jpeg',
-          out_dir: outputDir,
-          out_prefix: path.parse(arquivo.filename).name,
-          page: null
-        });
-
-        const imagens = fs.readdirSync(outputDir).filter(f => f.endsWith('.jpg') || f.endsWith('.jpeg'));
-        for (const img of imagens) {
-          const result = await Tesseract.recognize(path.join(outputDir, img), 'por');
-          textoExtraido += result.data.text + '\n';
-          fs.unlinkSync(path.join(outputDir, img));
-        }
-
-        fs.unlinkSync(arquivo.path); // remove PDF
+        const buffer = fs.readFileSync(arquivo.path);
+        const data = await pdfParse(buffer);
+        textoExtraido += data.text + '\n';
+        fs.unlinkSync(arquivo.path);
       } else {
         const result = await Tesseract.recognize(arquivo.path, 'por');
         textoExtraido += result.data.text + '\n';
