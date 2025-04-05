@@ -1,11 +1,12 @@
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs');
+const path = require('path');
 const Tesseract = require('tesseract.js');
 const OpenAI = require('openai');
+const { convert } = require('pdf-poppler');
 
 const app = express();
 app.use(cors());
@@ -13,31 +14,49 @@ app.use(express.json());
 
 const upload = multer({ dest: 'uploads/' });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 app.post('/api/gerar-minuta', upload.array('documentos'), async (req, res) => {
   try {
     const arquivos = req.files;
-    const modelo = req.body.modelo;
+    const modelo = req.body.modelo || '';
 
     if (!arquivos || arquivos.length === 0) {
-      return res.status(400).json({ erro: 'Nenhum documento foi enviado.' });
-    }
-
-    if (!modelo) {
-      return res.status(400).json({ erro: 'O modelo da minuta está ausente.' });
+      return res.status(400).json({ erro: 'Nenhum documento enviado.' });
     }
 
     let textoExtraido = '';
+
     for (const arquivo of arquivos) {
-      const resultado = await Tesseract.recognize(arquivo.path, 'por');
-      textoExtraido += resultado.data.text + '\n';
-      fs.unlinkSync(arquivo.path); // remove arquivo
+      const ext = path.extname(arquivo.originalname).toLowerCase();
+
+      if (ext === '.pdf') {
+        const outputDir = path.join(__dirname, 'converted');
+        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+
+        await convert(arquivo.path, {
+          format: 'jpeg',
+          out_dir: outputDir,
+          out_prefix: path.parse(arquivo.filename).name,
+          page: null
+        });
+
+        const imagens = fs.readdirSync(outputDir).filter(f => f.endsWith('.jpg') || f.endsWith('.jpeg'));
+        for (const img of imagens) {
+          const result = await Tesseract.recognize(path.join(outputDir, img), 'por');
+          textoExtraido += result.data.text + '\n';
+          fs.unlinkSync(path.join(outputDir, img));
+        }
+
+        fs.unlinkSync(arquivo.path); // remove PDF
+      } else {
+        const result = await Tesseract.recognize(arquivo.path, 'por');
+        textoExtraido += result.data.text + '\n';
+        fs.unlinkSync(arquivo.path);
+      }
     }
 
-    const prompt = `Use o modelo abaixo com os campos entre ¿...> para gerar uma minuta com base nos documentos a seguir.\n\nModelo:\n${modelo}\n\nDocumentos OCR:\n${textoExtraido}`;
+    const prompt = `Use o modelo abaixo com os dados extraídos dos documentos para gerar uma minuta jurídica:\n\nMODELO:\n${modelo}\n\nDADOS:\n${textoExtraido}`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
@@ -55,6 +74,4 @@ app.post('/api/gerar-minuta', upload.array('documentos'), async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
