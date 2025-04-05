@@ -48,7 +48,7 @@ app.post('/api/gerar-minuta', upload.array('documentos'), async (req, res) => {
     const prompt = `Use o modelo abaixo com os dados extraídos dos documentos para gerar uma minuta jurídica:\n\nMODELO:\n${modelo}\n\nDADOS:\n${textoExtraido}`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo', // ou 'gpt-4' se tiver acesso
+      model: 'gpt-4o', // ou 'gpt-4' se tiver acesso
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
     });
